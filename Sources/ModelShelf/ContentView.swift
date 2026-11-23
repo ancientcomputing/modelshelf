@@ -58,6 +58,14 @@ struct ContentView: View {
     }
 
     var body: some View {
+        if store.showSetup {
+            FolderSetupView(store: store)
+        } else {
+            main
+        }
+    }
+
+    private var main: some View {
         NavigationSplitView {
             Sidebar(store: store, filter: $filter)
                 .navigationSplitViewColumnWidth(min: 190, ideal: 210)
@@ -254,7 +262,7 @@ struct Banners: View {
             if !store.libraryAvailable {
                 Banner(icon: "externaldrive.badge.xmark", tint: .orange,
                        text: "The library isn't available. Connect the drive, or choose another folder in Settings.",
-                       detail: store.libraryPath)
+                       detail: store.libraryHub.path)
             }
             if store.libraryAvailable, !new.isEmpty {
                 Banner(icon: "tray.and.arrow.down", tint: .accentColor,
@@ -556,5 +564,73 @@ struct ActivityView: View {
                                        description: Text("Moves, copies, repairs, removals and downloads are recorded here."))
             }
         }
+    }
+}
+
+// MARK: - First run (sandbox)
+
+/// Shown once in the sandboxed build: Model Shelf can only use folders the user picks.
+struct FolderSetupView: View {
+    let store: Store
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable().frame(width: 96, height: 96)
+            VStack(spacing: 8) {
+                Text("Choose your model folders").font(.title.weight(.semibold))
+                Text("Model Shelf only reads and changes the folders you choose here. You can change them later in Settings.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
+            }
+            VStack(spacing: 0) {
+                SetupRow(icon: "laptopcomputer", title: "Hugging Face cache",
+                         detail: "Where models download to. Usually ~/.cache/huggingface, a hidden folder.",
+                         chosen: store.cacheFolder.isGranted ? store.cacheHub.path : nil) { store.choose(.cache) }
+                Divider().padding(.leading, 52)
+                SetupRow(icon: "externaldrive", title: "Model library",
+                         detail: "A folder on your external drive that holds all your models.",
+                         chosen: store.libraryFolder.isGranted ? store.libraryHub.path : nil) { store.choose(.library) }
+            }
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+            .frame(maxWidth: 560)
+
+            Button("Continue") { store.finishSetup() }
+                .keyboardShortcut(.defaultAction)
+                .controlSize(.large)
+                .disabled(!(store.cacheFolder.isGranted && store.libraryFolder.isGranted))
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct SetupRow: View {
+    let icon: String
+    let title: String
+    let detail: String
+    let chosen: String?
+    let choose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.title2).frame(width: 26).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(title).font(.headline)
+                    if chosen != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                }
+                if let chosen {
+                    Text(chosen).font(.callout.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                } else {
+                    Text(detail).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button(chosen == nil ? "Choose…" : "Change…", action: choose)
+        }
+        .padding(14)
     }
 }

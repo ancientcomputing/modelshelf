@@ -10,12 +10,23 @@
 #                  timestamp, ready for notarization (see packaging/release.sh).
 #   VERSION        CFBundleShortVersionString (default 1.0.0)
 #   BUILD_NUMBER   CFBundleVersion (default: the git commit count)
+#   SANDBOX        1 to sign with packaging/ModelShelf.entitlements (App Sandbox), as the Mac App
+#                  Store requires. The app then asks for the cache and library folders on first run.
+#   PROVISIONING_PROFILE  a Mac App Store profile to embed (packaging/release-mas.sh sets this). Its
+#                  application and team identifiers are added to the entitlements.
 set -euo pipefail
 cd "${0:A:h}"
 
 IDENTITY="${SIGN_IDENTITY:--}"
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
+ENTITLEMENTS=()
+if [[ -n "${PROVISIONING_PROFILE:-}" ]]; then SANDBOX=1; fi
+if [[ "${SANDBOX:-0}" == "1" ]]; then
+  mkdir -p build
+  cp packaging/ModelShelf.entitlements build/ModelShelf.entitlements
+  ENTITLEMENTS=(--entitlements build/ModelShelf.entitlements)
+fi
 if [[ "$IDENTITY" == "-" ]]; then
   SIGN=(--force --sign -)
 else
@@ -69,10 +80,23 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Apache License 2.0</string>
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>NSRemovableVolumesUsageDescription</key><string>Model Shelf keeps your model library on an external drive.</string>
 </dict>
 </plist>
 PLIST
+
+if [[ -n "${PROVISIONING_PROFILE:-}" ]]; then
+  cp "$PROVISIONING_PROFILE" "$APP/Contents/embedded.provisionprofile"
+  # A manual codesign only embeds what's in the entitlements file, and App Store Connect rejects a
+  # signature without the application identifier the profile carries.
+  PROFILE_PLIST="$(security cms -D -i "$PROVISIONING_PROFILE")"
+  APP_ID="$(plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - - <<<"$PROFILE_PLIST")"
+  TEAM_ID="$(plutil -extract 'Entitlements.com\.apple\.developer\.team-identifier' raw -o - - <<<"$PROFILE_PLIST")"
+  [[ "$APP_ID" == *.ai.thisbrain.modelshelf ]] || { echo "error: profile is for $APP_ID, not ai.thisbrain.modelshelf" >&2; exit 1; }
+  /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $APP_ID" build/ModelShelf.entitlements
+  /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM_ID" build/ModelShelf.entitlements
+fi
 
 # Sign inside-out: each framework's nested bundles, its binary, the framework; then the app.
 for fw in "$APP"/Contents/Frameworks/*.framework(N); do
@@ -80,10 +104,10 @@ for fw in "$APP"/Contents/Frameworks/*.framework(N); do
   codesign "${SIGN[@]}" "$fw/Versions/Current/${${fw:t}%.framework}"
   codesign "${SIGN[@]}" "$fw"
 done
-codesign "${SIGN[@]}" "$APP/Contents/MacOS/ModelShelf"
-codesign "${SIGN[@]}" "$APP"
+codesign "${SIGN[@]}" "${ENTITLEMENTS[@]}" "$APP/Contents/MacOS/ModelShelf"
+codesign "${SIGN[@]}" "${ENTITLEMENTS[@]}" "$APP"
 codesign --verify --deep --strict "$APP"
-echo "Built $PWD/$APP ($VERSION, build $BUILD_NUMBER, signed by: $IDENTITY)"
+echo "Built $PWD/$APP ($VERSION, build $BUILD_NUMBER, signed by: $IDENTITY${ENTITLEMENTS:+, sandboxed})"
 
 if [[ "${1:-}" == "--install" ]]; then
   rm -rf "/Applications/ModelShelf.app"

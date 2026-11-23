@@ -97,6 +97,8 @@ struct Entry: Identifiable, Hashable {
 
 struct Space { var free: Int64; var total: Int64 }
 
+enum FolderKind { case cache, library }
+
 @MainActor @Observable
 final class Store {
     static let defaultLibrary = "/Volumes/Work/models/hub"
@@ -104,14 +106,21 @@ final class Store {
         let env = ProcessInfo.processInfo.environment
         if let p = env["HF_HUB_CACHE"] { return p }
         if let h = env["HF_HOME"] { return h + "/hub" }
-        return NSHomeDirectory() + "/.cache/huggingface/hub"
+        return Sandbox.realHome + "/.cache/huggingface/hub"
     }
 
     // MODELSHELF_CACHE / MODELSHELF_LIBRARY override saved settings (handy for testing).
     var cachePath: String { didSet { save("cachePath", cachePath) } }
     var libraryPath: String { didSet { save("libraryPath", libraryPath) } }
-    var cacheHub: URL { URL(fileURLWithPath: cachePath) }
-    var libraryHub: URL { URL(fileURLWithPath: libraryPath) }
+    /// Folders the user granted (required in the sandbox, optional outside it).
+    let cacheFolder: GrantedFolder
+    let libraryFolder: GrantedFolder
+    private var grantedCacheHub: URL?
+    private var grantedLibraryHub: URL?
+    var cacheHub: URL { grantedCacheHub ?? URL(fileURLWithPath: cachePath) }
+    var libraryHub: URL { grantedLibraryHub ?? URL(fileURLWithPath: libraryPath) }
+    /// First run in the sandbox: ask for both folders before showing anything else.
+    var showSetup: Bool
 
     var entries: [Entry] = []
     var libraryAvailable = false
@@ -145,8 +154,12 @@ final class Store {
         let d = UserDefaults.standard
         cachePath = env["MODELSHELF_CACHE"] ?? d.string(forKey: "cachePath") ?? Store.defaultCache
         libraryPath = env["MODELSHELF_LIBRARY"] ?? d.string(forKey: "libraryPath") ?? Store.defaultLibrary
+        cacheFolder = GrantedFolder(bookmark: overridden ? nil : d.data(forKey: "cacheBookmark"))
+        libraryFolder = GrantedFolder(bookmark: overridden ? nil : d.data(forKey: "libraryBookmark"))
+        showSetup = Sandbox.isActive && !overridden && !(cacheFolder.isGranted && libraryFolder.isGranted)
 
         activity = log.load()
+        syncGrants()
 
         let ws = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
@@ -164,10 +177,70 @@ final class Store {
         Task { await refresh() }
     }
 
+    // MARK: Folder access
+
+    private func folder(_ kind: FolderKind) -> GrantedFolder { kind == .cache ? cacheFolder : libraryFolder }
+
+    /// Re-resolves bookmarks (a drive may have been mounted or ejected) and derives the hubs.
+    private func syncGrants() {
+        for kind in [FolderKind.cache, .library] {
+            let f = folder(kind)
+            f.invalidateIfMissing()
+            if f.resolve() { persistBookmark(kind) }
+        }
+        grantedCacheHub = cacheFolder.url.map(HubFolder.hub(forPicked:))
+        grantedLibraryHub = libraryFolder.url.map(HubFolder.hub(forPicked:))
+        Hub.tokenFolders = [cacheFolder.url].compactMap { $0 }
+    }
+
+    private func persistBookmark(_ kind: FolderKind) {
+        guard !overridden else { return }
+        UserDefaults.standard.set(folder(kind).bookmark, forKey: kind == .cache ? "cacheBookmark" : "libraryBookmark")
+    }
+
+    /// Asks the user for a folder and keeps access to it.
+    func choose(_ kind: FolderKind) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.showsHiddenFiles = true
+        panel.prompt = "Choose"
+        switch kind {
+        case .cache:
+            panel.message = "Choose your Hugging Face cache folder. It's usually ~/.cache/huggingface (a hidden folder)."
+            let hf = URL(fileURLWithPath: Sandbox.realHome + "/.cache/huggingface")
+            panel.directoryURL = FileManager.default.fileExists(atPath: hf.path) ? hf : URL(fileURLWithPath: Sandbox.realHome)
+        case .library:
+            panel.message = "Choose the folder that holds your model library, usually on an external drive."
+            panel.directoryURL = URL(fileURLWithPath: "/Volumes")
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try folder(kind).grant(url)
+            persistBookmark(kind)
+            syncGrants()
+            Task { await refresh() }
+        } catch {
+            lastError = "Couldn't keep access to \(url.path). \(error.localizedDescription)"
+        }
+    }
+
+    /// Outside the sandbox: forget the chosen folder and use the default path.
+    func resetFolder(_ kind: FolderKind) {
+        folder(kind).revoke()
+        persistBookmark(kind)
+        syncGrants()
+        if kind == .cache { cachePath = Store.defaultCache } else { libraryPath = Store.defaultLibrary }
+    }
+
+    func finishSetup() { showSetup = false }
+
     // MARK: Scanning
 
     func refresh() async {
         guard !isScanning else { return }
+        syncGrants()
         isScanning = true
         defer { isScanning = false }
         let cache = cacheHub, library = libraryHub
@@ -203,7 +276,7 @@ final class Store {
     func run(_ kind: JobKind, on ids: some Sequence<String>) {
         // Every job reads or writes the library, so the drive must be there.
         guard libraryAvailable else {
-            lastError = "Connect the library drive first. Looking for \(libraryPath)."
+            lastError = "Connect the library drive first. Looking for \(libraryHub.path)."
             return
         }
         for id in ids where !isBusy(id) {
@@ -242,7 +315,7 @@ final class Store {
 
     func redownload(_ ids: [String], useLatest: Bool) {
         guard libraryAvailable else {
-            lastError = "Connect the library drive first. Looking for \(libraryPath)."
+            lastError = "Connect the library drive first. Looking for \(libraryHub.path)."
             return
         }
         for id in ids where !isBusy(id) {

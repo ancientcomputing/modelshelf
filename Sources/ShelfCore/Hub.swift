@@ -78,14 +78,20 @@ public enum Hub {
         s.count == 40 && s.allSatisfy { $0.isHexDigit }
     }
 
+    /// Extra folders to look for a `token` file in, e.g. the Hugging Face folder the user granted
+    /// in the sandbox (`~/.cache/huggingface`).
+    nonisolated(unsafe) public static var tokenFolders: [URL] = []
+
     /// Token for gated models, same places huggingface_hub looks.
     public static var token: String? {
         let env = ProcessInfo.processInfo.environment
         if let t = env["HF_TOKEN"], !t.isEmpty { return t }
-        let home = env["HF_HOME"] ?? NSHomeDirectory() + "/.cache/huggingface"
-        return (try? String(contentsOfFile: home + "/token", encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
+        let homes = tokenFolders.map(\.path) + [env["HF_HOME"] ?? Sandbox.realHome + "/.cache/huggingface"]
+        for home in homes {
+            if let t = (try? String(contentsOfFile: home + "/token", encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty { return t }
+        }
+        return nil
     }
 
     /// File list (with blob hashes) for `revision`, which may be a branch name; `sha` is the

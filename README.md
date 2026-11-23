@@ -145,6 +145,20 @@ VERSION=1.0.0 packaging/release.sh
 Set `SIGN_IDENTITY` and `NOTARY_PROFILE` (a `xcrun notarytool store-credentials` profile) to use
 your own certificate.
 
+### Sandboxed / Mac App Store build
+
+The Mac App Store requires the App Sandbox. `SANDBOX=1 ./build-app.sh` signs the app with
+[`packaging/ModelShelf.entitlements`](packaging/ModelShelf.entitlements): sandbox, network access,
+and read-write access only to folders you choose. On first run it asks for the Hugging Face cache
+and the library folder, and keeps access to them with security-scoped bookmarks, including a
+library on a drive that's ejected and plugged back in. Choose `~/.cache/huggingface` (not just
+`hub`) so gated models can use your saved token. Inside the sandbox the app can't read other apps'
+LocalLM Lab pin files, so redownloads use the commit of the library or Mac copy, or the latest.
+
+`packaging/release-mas.sh` builds the App Store package: sandboxed, signed with Apple Distribution,
+provisioning profile embedded, and a `.pkg` signed with the installer certificate. The one-time
+Apple Developer portal setup it needs is described at the top of the script.
+
 To point the app at test folders without changing your settings, set `MODELSHELF_CACHE` and
 `MODELSHELF_LIBRARY` when launching it.
 

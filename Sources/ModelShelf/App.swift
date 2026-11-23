@@ -1,4 +1,5 @@
 import AppKit
+import ShelfCore
 import SwiftUI
 
 @main
@@ -34,11 +35,19 @@ struct SettingsView: View {
         Form {
             Section {
                 PathRow(title: "Library", detail: "Holds all your models. Usually on the external drive.",
-                        path: $store.libraryPath, reset: Store.defaultLibrary)
-                PathRow(title: "Hugging Face cache", detail: "Where downloads land. Set by HF_HUB_CACHE or HF_HOME.",
-                        path: $store.cachePath, reset: Store.defaultCache)
+                        path: store.libraryHub.path,
+                        choose: { store.choose(.library) },
+                        reset: Sandbox.isActive || store.libraryPath == Store.defaultLibrary && !store.libraryFolder.isGranted
+                            ? nil : { store.resetFolder(.library) })
+                PathRow(title: "Hugging Face cache",
+                        detail: Sandbox.isActive ? "Where downloads land. Choose ~/.cache/huggingface so gated models can use your saved token."
+                                                 : "Where downloads land. Set by HF_HUB_CACHE or HF_HOME.",
+                        path: store.cacheHub.path,
+                        choose: { store.choose(.cache) },
+                        reset: Sandbox.isActive || store.cachePath == Store.defaultCache && !store.cacheFolder.isGranted
+                            ? nil : { store.resetFolder(.cache) })
             } footer: {
-                Text("Both folders are hub folders: they contain models--org--name folders.")
+                Text("Both are hub folders: they contain models--org--name folders. You can also choose the folder that contains a hub folder.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -51,31 +60,22 @@ struct SettingsView: View {
 struct PathRow: View {
     let title: String
     let detail: String
-    @Binding var path: String
-    let reset: String
+    let path: String
+    let choose: () -> Void
+    let reset: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title).font(.headline)
                 Spacer()
-                if path != reset { Button("Reset") { path = reset }.controlSize(.small) }
-                Button("Choose…") { choose() }.controlSize(.small)
+                if let reset { Button("Reset", action: reset).controlSize(.small) }
+                Button("Choose…", action: choose).controlSize(.small)
             }
             Text(path).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                 .lineLimit(1).truncationMode(.middle)
             Text(detail).font(.footnote).foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
-    }
-
-    private func choose() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.showsHiddenFiles = true
-        panel.directoryURL = URL(fileURLWithPath: path)
-        if panel.runModal() == .OK, let url = panel.url { path = url.path }
     }
 }
