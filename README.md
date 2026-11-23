@@ -172,6 +172,13 @@ demo runs with `MODELSHELF_DEMO`, which uses fixed disk numbers and its own acti
 saves nothing to your settings. Output goes to `build/screenshots/`.
 `make_demo_library.py --tiny --scenario review` builds a small library to zip for reviewers.
 
+## Support and privacy
+
+Help, common fixes and contact details: [SUPPORT.md](SUPPORT.md), or
+[thisbrain.ai/opensource/support.html](https://thisbrain.ai/opensource/support.html#modelshelf).
+Model Shelf collects no data; see [PRIVACY.md](PRIVACY.md) and the
+[full policy](https://thisbrain.ai/opensource/privacy.html#modelshelf).
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).
