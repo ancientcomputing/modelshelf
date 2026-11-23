@@ -117,6 +117,10 @@ final class Store {
     let libraryFolder: GrantedFolder
     private var grantedCacheHub: URL?
     private var grantedLibraryHub: URL?
+    /// Whether the user has granted each folder. Views read these, not `GrantedFolder`, which
+    /// SwiftUI can't observe.
+    private(set) var cacheGranted = false
+    private(set) var libraryGranted = false
     var cacheHub: URL { grantedCacheHub ?? URL(fileURLWithPath: cachePath) }
     var libraryHub: URL { grantedLibraryHub ?? URL(fileURLWithPath: libraryPath) }
     /// First run in the sandbox: ask for both folders before showing anything else.
@@ -136,7 +140,7 @@ final class Store {
 
     /// Newest last. Mirrors the JSON Lines file.
     var activity: [ActivityEntry] = []
-    let log = ActivityLog()
+    let log: ActivityLog
     /// Commits recorded by LocalLM Lab apps, by repo id.
     var pins: [String: RevisionChoice] = [:]
     /// Models waiting for the user to confirm a redownload.
@@ -147,16 +151,19 @@ final class Store {
     private var lastSample: (date: Date, done: Int64)?
     private var observers: [NSObjectProtocol] = []
     private let overridden: Bool
+    private var demoStaged = false
 
     init() {
         let env = ProcessInfo.processInfo.environment
-        overridden = env["MODELSHELF_CACHE"] != nil || env["MODELSHELF_LIBRARY"] != nil
+        overridden = Demo.isActive || env["MODELSHELF_CACHE"] != nil || env["MODELSHELF_LIBRARY"] != nil
         let d = UserDefaults.standard
-        cachePath = env["MODELSHELF_CACHE"] ?? d.string(forKey: "cachePath") ?? Store.defaultCache
-        libraryPath = env["MODELSHELF_LIBRARY"] ?? d.string(forKey: "libraryPath") ?? Store.defaultLibrary
+        cachePath = Demo.isActive ? Demo.cacheHub : env["MODELSHELF_CACHE"] ?? d.string(forKey: "cachePath") ?? Store.defaultCache
+        libraryPath = Demo.isActive ? Demo.libraryHub : env["MODELSHELF_LIBRARY"] ?? d.string(forKey: "libraryPath") ?? Store.defaultLibrary
         cacheFolder = GrantedFolder(bookmark: overridden ? nil : d.data(forKey: "cacheBookmark"))
         libraryFolder = GrantedFolder(bookmark: overridden ? nil : d.data(forKey: "libraryBookmark"))
-        showSetup = Sandbox.isActive && !overridden && !(cacheFolder.isGranted && libraryFolder.isGranted)
+        showSetup = Demo.isActive ? Demo.shot == .setup
+            : Sandbox.isActive && !overridden && !(cacheFolder.isGranted && libraryFolder.isGranted)
+        log = Demo.isActive ? ActivityLog(url: Demo.activityLog) : ActivityLog()
 
         activity = log.load()
         syncGrants()
@@ -190,6 +197,8 @@ final class Store {
         }
         grantedCacheHub = cacheFolder.url.map(HubFolder.hub(forPicked:))
         grantedLibraryHub = libraryFolder.url.map(HubFolder.hub(forPicked:))
+        cacheGranted = cacheFolder.isGranted
+        libraryGranted = libraryFolder.isGranted
         Hub.tokenFolders = [cacheFolder.url].compactMap { $0 }
     }
 
@@ -206,14 +215,16 @@ final class Store {
         panel.canCreateDirectories = true
         panel.showsHiddenFiles = true
         panel.prompt = "Choose"
+        // Demo: a fresh identifier, so the panel doesn't reopen where the user last was.
+        if Demo.isActive { panel.identifier = NSUserInterfaceItemIdentifier("demo-\(UUID().uuidString)") }
         switch kind {
         case .cache:
             panel.message = "Choose your Hugging Face cache folder. It's usually ~/.cache/huggingface (a hidden folder)."
-            let hf = URL(fileURLWithPath: Sandbox.realHome + "/.cache/huggingface")
+            let hf = Demo.isActive ? Demo.cachePickerStart : URL(fileURLWithPath: Sandbox.realHome + "/.cache/huggingface")
             panel.directoryURL = FileManager.default.fileExists(atPath: hf.path) ? hf : URL(fileURLWithPath: Sandbox.realHome)
         case .library:
             panel.message = "Choose the folder that holds your model library, usually on an external drive."
-            panel.directoryURL = URL(fileURLWithPath: "/Volumes")
+            panel.directoryURL = Demo.isActive ? Demo.libraryPickerStart : URL(fileURLWithPath: "/Volumes")
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
@@ -256,7 +267,7 @@ final class Store {
                 return Space(free: f, total: t)
             }
             return (Scanner.scan(hub: cache), libOK ? Scanner.scan(hub: library) : [], libOK,
-                    space(cache), libOK ? space(library) : nil, PinFiles.load())
+                    space(cache), libOK ? space(library) : nil, Demo.isActive ? [:] : PinFiles.load())
         }.value
         pins = result.5
 
@@ -267,6 +278,26 @@ final class Store {
         libraryAvailable = result.2
         macSpace = result.3
         librarySpace = result.4
+        if Demo.isActive { stageDemo() }
+    }
+
+    /// Demo mode: fixed disk numbers, and the state the requested screenshot needs.
+    private func stageDemo() {
+        macSpace = Demo.macSpace
+        librarySpace = libraryAvailable ? Demo.librarySpace : nil
+        guard !demoStaged else { return }
+        demoStaged = true
+        switch Demo.shot {
+        case .moving:
+            guard let e = entries.first(where: { $0.status == .newOnMac }) else { return }
+            current = Job(dirName: e.id, kind: .moveToLibrary, title: JobKind.moveToLibrary.title(e.repoID),
+                          action: "Moved to library", repoID: e.repoID)
+            progress = TransferProgress(phase: .copying, done: e.size * 62 / 100, total: e.size * 2)
+            bytesPerSecond = 1_480_000_000
+        case .redownload:
+            pendingRedownload = entries.filter { $0.status == .brokenLibraryOnly }.map(\.id)
+        default: break
+        }
     }
 
     // MARK: Jobs

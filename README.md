@@ -162,6 +162,16 @@ Apple Developer portal setup it needs is described at the top of the script.
 To point the app at test folders without changing your settings, set `MODELSHELF_CACHE` and
 `MODELSHELF_LIBRARY` when launching it.
 
+### App Store screenshots
+
+`packaging/screenshots/capture.sh store` takes the five App Store screenshots (1440 × 900, no
+alpha) from a demo library: 15 models whose weights are sparse files, so they show real sizes
+but take under 1 MB on disk. `capture.sh review` takes the App Review shots of the sandboxed
+folder setup; you click through the two folder pickers when it asks. Quit Model Shelf first. The
+demo runs with `MODELSHELF_DEMO`, which uses fixed disk numbers and its own activity log and
+saves nothing to your settings. Output goes to `build/screenshots/`.
+`make_demo_library.py --tiny --scenario review` builds a small library to zip for reviewers.
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).

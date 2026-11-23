@@ -43,7 +43,7 @@ enum Filter: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     let store: Store
-    @State private var filter: Filter? = .all
+    @State private var filter: Filter? = Demo.isActive ? Demo.initialFilter : .all
     @State private var selection = Set<String>()
     @State private var search = ""
     @State private var sortOrder = [KeyPathComparator(\Entry.repoID)]
@@ -587,11 +587,11 @@ struct FolderSetupView: View {
             VStack(spacing: 0) {
                 SetupRow(icon: "laptopcomputer", title: "Hugging Face cache",
                          detail: "Where models download to. Usually ~/.cache/huggingface, a hidden folder.",
-                         chosen: store.cacheFolder.isGranted ? store.cacheHub.path : nil) { store.choose(.cache) }
+                         chosen: store.cacheGranted ? store.cacheHub.path.tildePath : nil) { store.choose(.cache) }
                 Divider().padding(.leading, 52)
                 SetupRow(icon: "externaldrive", title: "Model library",
                          detail: "A folder on your external drive that holds all your models.",
-                         chosen: store.libraryFolder.isGranted ? store.libraryHub.path : nil) { store.choose(.library) }
+                         chosen: store.libraryGranted ? store.libraryHub.path.tildePath : nil) { store.choose(.library) }
             }
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
             .frame(maxWidth: 560)
@@ -599,7 +599,7 @@ struct FolderSetupView: View {
             Button("Continue") { store.finishSetup() }
                 .keyboardShortcut(.defaultAction)
                 .controlSize(.large)
-                .disabled(!(store.cacheFolder.isGranted && store.libraryFolder.isGranted))
+                .disabled(!(store.cacheGranted && store.libraryGranted))
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

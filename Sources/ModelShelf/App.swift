@@ -15,6 +15,7 @@ struct ModelShelfApp: App {
         Window("Model Shelf", id: "main") {
             ContentView(store: store)
                 .frame(minWidth: 900, minHeight: 540)
+                .onAppear { Demo.sizeWindow() }
         }
         .commands {
             CommandGroup(after: .toolbar) {
@@ -37,14 +38,14 @@ struct SettingsView: View {
                 PathRow(title: "Library", detail: "Holds all your models. Usually on the external drive.",
                         path: store.libraryHub.path,
                         choose: { store.choose(.library) },
-                        reset: Sandbox.isActive || store.libraryPath == Store.defaultLibrary && !store.libraryFolder.isGranted
+                        reset: Sandbox.isActive || store.libraryPath == Store.defaultLibrary && !store.libraryGranted
                             ? nil : { store.resetFolder(.library) })
                 PathRow(title: "Hugging Face cache",
                         detail: Sandbox.isActive ? "Where downloads land. Choose ~/.cache/huggingface so gated models can use your saved token."
                                                  : "Where downloads land. Set by HF_HUB_CACHE or HF_HOME.",
                         path: store.cacheHub.path,
                         choose: { store.choose(.cache) },
-                        reset: Sandbox.isActive || store.cachePath == Store.defaultCache && !store.cacheFolder.isGranted
+                        reset: Sandbox.isActive || store.cachePath == Store.defaultCache && !store.cacheGranted
                             ? nil : { store.resetFolder(.cache) })
             } footer: {
                 Text("Both are hub folders: they contain models--org--name folders. You can also choose the folder that contains a hub folder.")
@@ -72,7 +73,7 @@ struct PathRow: View {
                 if let reset { Button("Reset", action: reset).controlSize(.small) }
                 Button("Choose…", action: choose).controlSize(.small)
             }
-            Text(path).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+            Text(path.tildePath).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                 .lineLimit(1).truncationMode(.middle)
             Text(detail).font(.footnote).foregroundStyle(.secondary)
         }
