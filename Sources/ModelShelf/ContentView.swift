@@ -600,6 +600,12 @@ struct FolderSetupView: View {
                 .keyboardShortcut(.defaultAction)
                 .controlSize(.large)
                 .disabled(!(store.cacheGranted && store.libraryGranted))
+
+            HStack(spacing: 4) {
+                Text("Model Shelf collects no data.").foregroundStyle(.secondary)
+                Link("Privacy Policy", destination: Links.privacy)
+            }
+            .font(.footnote)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

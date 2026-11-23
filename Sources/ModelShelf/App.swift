@@ -18,6 +18,20 @@ struct ModelShelfApp: App {
                 .onAppear { Demo.sizeWindow() }
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Model Shelf") { Links.showAbout() }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Model Shelf Support") { Links.open(Links.support) }
+                Button("Email Support…") { Links.open(Links.email) }
+                Button("Report an Issue on GitHub…") { Links.open(Links.issues) }
+                Divider()
+                Button("Privacy Policy") { Links.open(Links.privacy) }
+                Button("Acknowledgements") { Links.openAcknowledgements() }
+                Divider()
+                Button("Model Shelf on GitHub") { Links.open(Links.source) }
+                Button("LocalLM SDK on GitHub") { Links.open(Links.sdk) }
+            }
             CommandGroup(after: .toolbar) {
                 Button("Refresh") { Task { await store.refresh() } }.keyboardShortcut("r")
             }
@@ -48,8 +62,16 @@ struct SettingsView: View {
                         reset: Sandbox.isActive || store.cachePath == Store.defaultCache && !store.cacheGranted
                             ? nil : { store.resetFolder(.cache) })
             } footer: {
-                Text("Both are hub folders: they contain models--org--name folders. You can also choose the folder that contains a hub folder.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Both are hub folders: they contain models--org--name folders. You can also choose the folder that contains a hub folder.")
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 14) {
+                        Link("Support", destination: Links.support)
+                        Link("Privacy Policy", destination: Links.privacy)
+                        Link("Source on GitHub", destination: Links.source)
+                    }
+                }
+                .font(.footnote)
             }
         }
         .formStyle(.grouped)

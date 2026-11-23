@@ -56,6 +56,8 @@ xcrun actool --compile "$ICON_TMP" --platform macosx --minimum-deployment-target
   --errors --warnings --output-format human-readable-text \
   packaging/Resources/Assets.xcassets >/dev/null
 cp "$ICON_TMP/Assets.car" "$ICON_TMP/AppIcon.icns" "$APP/Contents/Resources/"
+# Third-party notices (the LocalLM SDK's NOTICE plus license texts), shown from About and Help.
+cp packaging/Resources/Acknowledgements.txt "$APP/Contents/Resources/"
 
 find "$APP" -name '._*' -delete
 xattr -cr "$APP"
@@ -79,7 +81,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSHumanReadableCopyright</key><string>Apache License 2.0</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 ThisBrainAI LLC</string>
   <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>NSRemovableVolumesUsageDescription</key><string>Model Shelf keeps your model library on an external drive.</string>
 </dict>
