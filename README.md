@@ -8,6 +8,8 @@ back when you want to run them again.
 Model Shelf knows the cache layout, so models keep working after they're moved. Every copy is
 verified before anything is deleted.
 
+![Model Shelf showing 40 models: library copies that need repair, two banners offering Repair all, and storage bars for the library drive and this Mac](docs/screenshot.png)
+
 ## Why not just rsync?
 
 Each model in the cache is a folder like `models--mlx-community--Qwen3-4B-4bit` with three parts:
