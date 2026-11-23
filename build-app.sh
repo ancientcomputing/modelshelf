@@ -56,7 +56,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>Model Shelf</string>
   <key>CFBundleDisplayName</key><string>Model Shelf</string>
-  <key>CFBundleIdentifier</key><string>com.ancientcomputing.modelshelf</string>
+  <key>CFBundleIdentifier</key><string>ai.thisbrain.modelshelf</string>
   <key>CFBundleExecutable</key><string>ModelShelf</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIconName</key><string>AppIcon</string>
