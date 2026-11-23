@@ -16,7 +16,7 @@ import argparse
 import sys
 
 try:
-    from PIL import Image, ImageFilter
+    from PIL import Image, ImageDraw, ImageFilter
 except ImportError:
     sys.exit("Pillow is required: pip3 install Pillow")
 
@@ -27,19 +27,35 @@ def gradient(w, h):
     return Image.composite(Image.new("RGB", (w, h), bottom), Image.new("RGB", (w, h), top), mask)
 
 
+def redact_sidebar(panel):
+    """Paints over the open panel's sidebar from the Favorites header down, and its scroller.
+    Measured on the macOS 27 panel at 1x; scaled for Retina captures."""
+    k = panel.width / 880
+    colour = panel.getpixel((round(20 * k), round(70 * k)))  # sidebar background, below Shared
+    d = ImageDraw.Draw(panel)
+    d.rectangle((round(6 * k), round(83 * k), round(134 * k), round(446 * k)), fill=colour)
+    d.rectangle((round(118 * k), round(2 * k), round(134 * k), round(83 * k)), fill=colour)
+    d.rectangle((round(14 * k), round(446 * k), round(134 * k), round(447 * k)), fill=colour)  # clipped label
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("out")
     p.add_argument("layers", nargs="+")
     p.add_argument("--size")
     p.add_argument("--plain", action="store_true")
+    p.add_argument("--redact-sidebar", action="store_true",
+                   help="blank the open panel's sidebar below Recents and Shared (your Finder favourites)")
     a = p.parse_args()
 
     layers = []
     for spec in a.layers:
         path, pos = spec.rsplit("@", 1)
         x, y = (int(v) for v in pos.split(","))
-        layers.append((Image.open(path).convert("RGBA"), x, y))
+        im = Image.open(path).convert("RGBA")
+        if a.redact_sidebar and layers:  # every layer after the main window: the open panel
+            redact_sidebar(im)
+        layers.append((im, x, y))
 
     # Pixels per point, from the main window (2 on a Retina display).
     main_img, mx, my = layers[0]

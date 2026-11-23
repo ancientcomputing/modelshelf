@@ -119,7 +119,7 @@ review() {
     echo "    The picker opens in a demo folder. Don't change folders; just click Choose."
     wait_for ge 2 600 || { echo "No folder picker opened." >&2; exit 1; }
     sleep 1.5
-    shoot "$OUT/review/$1-choose-$3-folder.png" --plain
+    shoot "$OUT/review/$1-choose-$3-folder.png" --plain --redact-sidebar
     wait_for lt 2 600 || { echo "Timed out waiting for Choose." >&2; exit 1; }
     echo "    Got it."
     sleep 1
