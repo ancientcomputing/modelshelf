@@ -36,6 +36,16 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 # signing, so strip them.
 for fw in "$BINDIR"/*.framework(N); do cp -R "$fw" "$APP/Contents/Frameworks/"; done
 for b in "$BINDIR"/*.bundle(N); do cp -R "$b" "$APP/Contents/Resources/"; done
+# App icon: compile the asset catalog (PNGs from packaging/generate_app_icon.py) into Assets.car,
+# which System Settings reads, and AppIcon.icns, which Finder and the Dock read.
+ICON_TMP="build/icon"
+rm -rf "$ICON_TMP" && mkdir -p "$ICON_TMP"
+xcrun actool --compile "$ICON_TMP" --platform macosx --minimum-deployment-target 27.0 \
+  --app-icon AppIcon --output-partial-info-plist "$ICON_TMP/partial.plist" \
+  --errors --warnings --output-format human-readable-text \
+  packaging/Resources/Assets.xcassets >/dev/null
+cp "$ICON_TMP/Assets.car" "$ICON_TMP/AppIcon.icns" "$APP/Contents/Resources/"
+
 find "$APP" -name '._*' -delete
 xattr -cr "$APP"
 
@@ -48,6 +58,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Model Shelf</string>
   <key>CFBundleIdentifier</key><string>com.ancientcomputing.modelshelf</string>
   <key>CFBundleExecutable</key><string>ModelShelf</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
