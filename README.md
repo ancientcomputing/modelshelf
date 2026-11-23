@@ -38,6 +38,12 @@ can load the copy. Model Shelf finds copies damaged this way and repairs them.
 - Xcode 27 / Swift 6.4 to build
 - A library drive formatted APFS or Mac OS Extended. exFAT can't store symlinks.
 
+## Install
+
+Download `ModelShelf-<version>.dmg` from
+[Releases](https://github.com/ancientcomputing/modelshelf/releases), open it, and drag
+**Model Shelf** to Applications. The app is signed with a Developer ID and notarized by Apple.
+
 ## Build and run
 
 ```bash
@@ -123,6 +129,19 @@ swift test --filter CrossVolumeTests
 # Real download through the SDK (~12 MB public test repo) into a scratch folder.
 MODELSHELF_NET_E2E=/tmp/modelshelf-net swift test --filter SDKDownloadTests
 ```
+
+### Releasing
+
+`packaging/release.sh` builds a release DMG in `build/release/`. It signs the app and the bundled
+SDK frameworks with a Developer ID (hardened runtime, secure timestamp), notarizes and staples the
+app, then builds, signs, notarizes and staples the DMG, and writes a `.sha256` next to it.
+
+```bash
+VERSION=1.0.0 packaging/release.sh
+```
+
+Set `SIGN_IDENTITY` and `NOTARY_PROFILE` (a `xcrun notarytool store-credentials` profile) to use
+your own certificate.
 
 To point the app at test folders without changing your settings, set `MODELSHELF_CACHE` and
 `MODELSHELF_LIBRARY` when launching it.
