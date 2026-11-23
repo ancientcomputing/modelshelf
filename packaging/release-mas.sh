@@ -50,6 +50,15 @@ echo "Using profile: $PROVISIONING_PROFILE"
 
 SIGN_IDENTITY="$APP_SIGN_IDENTITY" PROVISIONING_PROFILE="$PROVISIONING_PROFILE" ./build-app.sh
 
+# App Store Connect rejects extended attributes such as com.apple.quarantine in the bundle (91109).
+# com.apple.provenance is added by macOS to files that tools like codesign write, and is accepted.
+stray="$(xattr -lr build/ModelShelf.app | cut -d: -f1-2 | grep -v ': com.apple.provenance$' | sort -u || true)"
+if [[ -n "$stray" ]]; then
+  echo "error: files in build/ModelShelf.app have extended attributes:" >&2
+  echo "$stray" >&2
+  exit 1
+fi
+
 rm -rf "$OUT" && mkdir -p "$OUT"
 productbuild --component build/ModelShelf.app /Applications --sign "$INSTALLER_SIGN_IDENTITY" "$PKG"
 pkgutil --check-signature "$PKG"

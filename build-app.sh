@@ -90,6 +90,8 @@ PLIST
 
 if [[ -n "${PROVISIONING_PROFILE:-}" ]]; then
   cp "$PROVISIONING_PROFILE" "$APP/Contents/embedded.provisionprofile"
+  # A downloaded profile carries com.apple.quarantine, which App Store Connect rejects (91109).
+  xattr -c "$APP/Contents/embedded.provisionprofile"
   # A manual codesign only embeds what's in the entitlements file, and App Store Connect rejects a
   # signature without the application identifier the profile carries.
   PROFILE_PLIST="$(security cms -D -i "$PROVISIONING_PROFILE")"
