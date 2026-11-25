@@ -175,23 +175,6 @@ public enum Transfer {
         hub.appendingPathComponent(stagingPrefix + UUID().uuidString)
     }
 
-    /// Copy + verify, then delete the source.
-    @discardableResult
-    public static func moveRepo(
-        _ src: URL,
-        toHub dstHub: URL,
-        cancel: CancelToken = CancelToken(),
-        progress: @escaping @Sendable (TransferProgress) -> Void = { _ in }
-    ) throws -> RepoInfo {
-        let before = try Scanner.inspect(repo: src)
-        let result = try copyRepo(src, toHub: dstHub, cancel: cancel, progress: progress)
-        guard result.health.isOK, result.covers(before) else {
-            throw ShelfError.verifyFailed("the destination doesn't contain everything in the source")
-        }
-        try FileManager.default.removeItem(at: src)
-        return result
-    }
-
     /// Deletes `local` only if `library` is healthy and holds everything `local` does.
     public static func removeIfCovered(local: URL, library: URL) throws {
         let l = try Scanner.inspect(repo: local)

@@ -146,18 +146,18 @@ def activity(models):
             **({"detail": detail} if detail else {}),
         })
 
-    add(330, "Moved to library", "mistral-small", duration=118)
-    add(329, "Moved to library", "gpt-oss", duration=104)
+    add(330, "Backed up to library", "mistral-small", duration=118)
+    add(329, "Backed up to library", "gpt-oss", duration=104)
     add(260, "Repaired library copy", "coder", duration=71)
     add(200, "Downloaded into library", "r1", source="library copy", duration=262,
         detail="downloaded 1.2 GB, reused 9 files (3.1 GB) already on the drive")
     add(150, "Copied to Mac", "gemma", duration=66)
     add(98, "Removed from Mac", "phi", detail="freed on this Mac", duration=1)
     add(97, "Removed from Mac", "lfm", detail="freed on this Mac", duration=1)
-    add(52, "Moved to library", "whisper", duration=14)
+    add(52, "Backed up to library", "whisper", duration=14)
     add(30, "Copied to Mac", "qwen3-8b", duration=39)
-    add(6, "Moved to library", "llama", duration=16, outcome="cancelled", nbytes=0)
-    add(5, "Moved to library", "llama", duration=17)
+    add(6, "Backed up to library", "llama", duration=16, outcome="cancelled", nbytes=0)
+    add(5, "Backed up to library", "llama", duration=17)
     rows.sort(key=lambda r: r["date"])
     return "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows)
 

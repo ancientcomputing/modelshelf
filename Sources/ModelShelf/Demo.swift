@@ -8,7 +8,7 @@ import ShelfCore
 enum Demo {
     enum Shot: String {
         case library    // all models
-        case moving     // all models, a move to the library in progress
+        case moving     // all models, a backup to the library in progress
         case attention  // the Needs attention filter
         case redownload // the redownload confirmation
         case activity   // the activity log

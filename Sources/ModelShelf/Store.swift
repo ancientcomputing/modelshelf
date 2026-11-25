@@ -18,12 +18,11 @@ enum Status: Hashable {
 }
 
 enum JobKind: Sendable {
-    case moveToLibrary, copyToLibrary, copyToMac, removeFromMac, deleteFromLibrary, redownload
+    case copyToLibrary, copyToMac, removeFromMac, deleteFromLibrary, redownload
 
     func title(_ name: String) -> String {
         switch self {
         case .redownload: "Downloading \(name) into the library"
-        case .moveToLibrary: "Moving \(name) to the library"
         case .copyToLibrary: "Copying \(name) to the library"
         case .copyToMac: "Copying \(name) to this Mac"
         case .removeFromMac: "Removing \(name) from this Mac"
@@ -83,7 +82,7 @@ struct Entry: Identifiable, Hashable {
     /// The one-click action for this row.
     var primaryAction: (label: String, kind: JobKind)? {
         switch status {
-        case .newOnMac: ("Move to library", .moveToLibrary)
+        case .newOnMac: ("Back up to library", .copyToLibrary)
         case .needsRepair: ("Repair library", .copyToLibrary)
         case .libraryOutdated: ("Update library", .copyToLibrary)
         case .synced: ("Remove from Mac", .removeFromMac)
@@ -290,8 +289,8 @@ final class Store {
         switch Demo.shot {
         case .moving:
             guard let e = entries.first(where: { $0.status == .newOnMac }) else { return }
-            current = Job(dirName: e.id, kind: .moveToLibrary, title: JobKind.moveToLibrary.title(e.repoID),
-                          action: "Moved to library", repoID: e.repoID)
+            current = Job(dirName: e.id, kind: .copyToLibrary, title: JobKind.copyToLibrary.title(e.repoID),
+                          action: "Backed up to library", repoID: e.repoID)
             progress = TransferProgress(phase: .copying, done: e.size * 62 / 100, total: e.size * 2)
             bytesPerSecond = 1_480_000_000
         case .redownload:
@@ -327,9 +326,8 @@ final class Store {
 
     private func actionName(_ kind: JobKind, _ e: Entry) -> String {
         switch kind {
-        case .moveToLibrary: "Moved to library"
         case .copyToLibrary: e.status == .needsRepair ? "Repaired library copy"
-            : e.status == .libraryOutdated ? "Updated library copy" : "Copied to library"
+            : e.status == .libraryOutdated ? "Updated library copy" : "Backed up to library"
         case .copyToMac: e.status == .brokenLocal ? "Restored Mac copy" : "Copied to Mac"
         case .removeFromMac: "Removed from Mac"
         case .deleteFromLibrary: "Deleted from library"
@@ -364,8 +362,7 @@ final class Store {
             guard let e = entries.first(where: { $0.id == id }) else { continue }
             if toLibrary {
                 switch e.status {
-                case .newOnMac: run(.moveToLibrary, on: [id])
-                case .needsRepair, .libraryOutdated: run(.copyToLibrary, on: [id])
+                case .newOnMac, .needsRepair, .libraryOutdated: run(.copyToLibrary, on: [id])
                 default: break
                 }
             } else if e.local == nil || e.status == .brokenLocal, e.library?.health.isOK == true {
@@ -457,7 +454,6 @@ final class Store {
             JobResult(bytes: last.total / 2, revision: r.currentRevision ?? r.snapshots.sorted().joined(separator: ", "))
         }
         switch job.kind {
-        case .moveToLibrary: return copied(try Transfer.moveRepo(local, toHub: library, cancel: token, progress: tracked))
         case .copyToLibrary: return copied(try Transfer.copyRepo(local, toHub: library, cancel: token, progress: tracked))
         case .copyToMac: return copied(try Transfer.copyRepo(lib, toHub: cache, cancel: token, progress: tracked))
         case .removeFromMac:

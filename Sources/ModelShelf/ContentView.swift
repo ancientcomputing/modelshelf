@@ -173,7 +173,7 @@ struct Sidebar: View {
                     let count = store.entries.filter { f.includes($0) }.count
                     Label(f.title, systemImage: f.icon)
                         .badge(count)
-                        .help(f == .library ? "Drop models here to move them to the library"
+                        .help(f == .library ? "Drop models here to back them up to the library"
                               : f == .mac ? "Drop models here to copy them to this Mac" : "")
                         .tag(f)
                         .listRowBackground(targeted == f ? RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.25)) : nil)
@@ -266,8 +266,8 @@ struct Banners: View {
             }
             if store.libraryAvailable, !new.isEmpty {
                 Banner(icon: "tray.and.arrow.down", tint: .accentColor,
-                       text: "\(new.count) new download\(new.count == 1 ? "" : "s") (\(new.reduce(0) { $0 + $1.size }.bytes)) \(new.count == 1 ? "isn't" : "aren't") in the library yet.",
-                       action: ("Move all to library", { store.run(.moveToLibrary, on: new.map(\.id)) }))
+                       text: "\(new.count) new download\(new.count == 1 ? "" : "s") (\(new.reduce(0) { $0 + $1.size }.bytes)) \(new.count == 1 ? "isn't" : "aren't") backed up to the library yet.",
+                       action: ("Back up all to library", { store.run(.copyToLibrary, on: new.map(\.id)) }))
             }
             if store.libraryAvailable, !repair.isEmpty {
                 Banner(icon: "wrench.and.screwdriver", tint: .orange,
@@ -561,7 +561,7 @@ struct ActivityView: View {
         .overlay {
             if rows.isEmpty {
                 ContentUnavailableView("No activity yet", systemImage: "clock.arrow.circlepath",
-                                       description: Text("Moves, copies, repairs, removals and downloads are recorded here."))
+                                       description: Text("Backups, copies, repairs, removals and downloads are recorded here."))
             }
         }
     }

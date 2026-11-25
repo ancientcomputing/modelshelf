@@ -2,11 +2,11 @@
 
 A macOS app for people who run local models and keep running out of disk. It treats an external
 drive as your **model library** and the Hugging Face cache (`~/.cache/huggingface/hub`) as a
-**staging area**: models download to the cache, you move them to the library, and you copy them
+**staging area**: models download to the cache, you back them up to the library, and you copy them
 back when you want to run them again.
 
-Model Shelf knows the cache layout, so models keep working after they're moved. Every copy is
-verified before anything is deleted.
+Model Shelf knows the cache layout, so models keep working after they're copied. Every copy is
+verified, and a model leaves this Mac only when you choose **Remove from Mac**.
 
 ![Model Shelf showing 40 models: library copies that need repair, two banners offering Repair all, and storage bars for the library drive and this Mac](docs/screenshot.png)
 
@@ -22,7 +22,7 @@ can load the copy. Model Shelf finds copies damaged this way and repairs them.
 
 - **One table for both places.** Each model shows where it is (library, this Mac, or both), its
   size, and whether each copy is healthy.
-- **Move to library.** Copy a new download to the drive, verify it, then remove it from the cache.
+- **Back up to library.** Copy a new download to the drive and verify it. The Mac copy stays.
 - **Copy to Mac.** Bring a model back to the cache to use it. The library copy stays.
 - **Remove from Mac.** Allowed only when the library copy is healthy and holds every blob and
   snapshot file the Mac copy has.
@@ -31,7 +31,7 @@ can load the copy. Model Shelf finds copies damaged this way and repairs them.
 - **Redownload** a broken library copy that isn't on this Mac, through the
   [LocalLM SDK](https://github.com/ancientcomputing/locallm), at the exact revision you had.
 - **Drag and drop** models onto *Library* or *On this Mac* in the sidebar.
-- **Activity log** of every move, copy, repair, removal and download, with revisions.
+- **Activity log** of every backup, copy, repair, removal and download, with revisions.
 - Storage bars for both disks, and banners for new downloads and copies that need attention.
 
 ## Requirements
@@ -64,16 +64,19 @@ folder: it contains `models--org--name` folders, just like the cache. The cache 
 
 ## How it keeps your models safe
 
-- **Verify, then delete.** A copy is assembled in a hidden staging folder next to its destination.
-  Every copied blob is hashed (SHA-256) and compared with the source. Only then is the copy swapped
-  into place, and only after that is the source removed. If anything fails or you cancel, the
-  staging folder is deleted and the source is untouched.
+- **Copies never delete.** Backing up and copying always leave the source in place. The only
+  action that deletes a model from this Mac is **Remove from Mac**, and only once the library holds
+  a healthy, complete copy.
+- **Verify before swapping in.** A copy is assembled in a hidden staging folder next to its
+  destination. Every copied blob is hashed (SHA-256) and compared with the source. Only then is the
+  copy swapped into place. If anything fails or you cancel, the staging folder is deleted and the
+  source is untouched.
 - **Symlinks stay symlinks.** Snapshot links are recreated exactly, so the copy works wherever it
   lands.
-- **No page-cache flooding.** Large files are copied with `F_NOCACHE`, so moving 40 GB doesn't
+- **No page-cache flooding.** Large files are copied with `F_NOCACHE`, so copying 40 GB doesn't
   push everything else out of memory.
 - **Downloads in progress are left alone.** A model with `.incomplete` files in `blobs/` can't be
-  moved.
+  copied.
 - **Health checks look at what loaders need.** A copy is healthy only when its snapshots contain
   real model files and every link resolves. Hidden marker files such as
   `.locallm-download-complete` don't count.

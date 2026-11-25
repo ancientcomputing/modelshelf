@@ -66,13 +66,6 @@ final class TransferTests: XCTestCase {
         XCTAssertNoStaging(library)
     }
 
-    func testMoveDeletesSourceOnlyAfterCopy() throws {
-        let src = try makeRepo(in: cache)
-        try Transfer.moveRepo(src, toHub: library)
-        XCTAssertFalse(fm.fileExists(atPath: src.path))
-        XCTAssertEqual(try Scanner.inspect(repo: library.appendingPathComponent(dir)).health, .ok)
-    }
-
     func testRepairsBackupWithMissingSnapshotLinks() throws {
         // What `rsync -r` (no -l) produces: blobs copied, symlinks skipped.
         let src = try makeRepo(in: cache)
@@ -129,7 +122,7 @@ final class TransferTests: XCTestCase {
     func testRefusesSourceStillDownloading() throws {
         let src = try makeRepo(in: cache)
         try Data("x".utf8).write(to: src.appendingPathComponent("blobs/zzz.incomplete"))
-        XCTAssertThrowsError(try Transfer.moveRepo(src, toHub: library)) { e in
+        XCTAssertThrowsError(try Transfer.copyRepo(src, toHub: library)) { e in
             XCTAssertEqual(e as? ShelfError, .sourceNotReady("it's still downloading"))
         }
         XCTAssertTrue(fm.fileExists(atPath: src.path))
@@ -139,7 +132,7 @@ final class TransferTests: XCTestCase {
     func testCancelLeavesNothingBehind() throws {
         let src = try makeRepo(in: cache, bigBytes: 64 << 20)
         let token = CancelToken()
-        XCTAssertThrowsError(try Transfer.moveRepo(src, toHub: library, cancel: token) { p in
+        XCTAssertThrowsError(try Transfer.copyRepo(src, toHub: library, cancel: token) { p in
             if p.done > 0 { token.cancel() }
         }) { e in XCTAssertEqual(e as? ShelfError, .cancelled) }
         XCTAssertTrue(fm.fileExists(atPath: src.path))

@@ -6,7 +6,7 @@ public struct ActivityEntry: Codable, Sendable, Identifiable, Hashable {
 
     public var id = UUID()
     public var date: Date
-    /// e.g. "Moved to library", "Repaired library copy", "Downloaded".
+    /// e.g. "Backed up to library", "Repaired library copy", "Downloaded".
     public var action: String
     public var repoID: String
     public var outcome: Outcome
