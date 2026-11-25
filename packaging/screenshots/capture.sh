@@ -38,11 +38,23 @@ build() {
 
 PID=""
 launch() { # launch <app> <shot>
-  MODELSHELF_DEMO="$DEMO" MODELSHELF_DEMO_SHOT=$2 "$1/Contents/MacOS/ModelShelf" -ApplePersistenceIgnoreState YES >/dev/null 2>&1 &
-  PID=$!
+  # Through Launch Services, so macOS lets the window come to the front: an app started straight
+  # from a shell stays in the background and its window looks inactive in the screenshots.
+  open -n -a "$1" --env MODELSHELF_DEMO="$DEMO" --env MODELSHELF_DEMO_SHOT=$2 --args -ApplePersistenceIgnoreState YES
+  local i=0
+  PID=""
+  while [[ -z "$PID" ]] && (( i++ < 40 )); do
+    sleep 0.25
+    PID=$(pgrep -n -f "$1/Contents/MacOS/ModelShelf" || true)
+  done
+  [[ -n "$PID" ]] || { echo "Model Shelf didn't start." >&2; exit 1; }
 }
 quit_app() {
-  if [[ -n "$PID" ]]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi
+  if [[ -n "$PID" ]]; then
+    kill "$PID" 2>/dev/null || true
+    local i=0
+    while kill -0 "$PID" 2>/dev/null && (( i++ < 40 )); do sleep 0.25; done
+  fi
   PID=""
 }
 # zsh skips EXIT traps when errexit fires, so also quit on errors.
@@ -96,7 +108,9 @@ store() {
     if [[ $want != $scenario ]]; then python3 "$HERE/make_demo_library.py" --scenario $want >/dev/null; scenario=$want; fi
     launch "$OUT/ModelShelf-demo.app" $shot
     wait_for ge $([[ $shot == redownload ]] && echo 2 || echo 1)
-    sleep 2.5 # window sizing, scan, row animations
+    sleep 1.5 # window sizing, scan
+    open -a "$OUT/ModelShelf-demo.app" # bring the running copy to the front if focus went elsewhere
+    sleep 1.5 # activation, row animations
     shoot "$OUT/store/$n-$shot.png" --size 1440x900
     quit_app
     n=$((n + 1))
