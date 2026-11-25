@@ -30,13 +30,13 @@ final class CrossVolumeTests: XCTestCase {
             try fm.removeItem(at: r); try fm.createDirectory(at: r, withIntermediateDirectories: true)
         }
         XCTAssertFalse(try Scanner.inspect(repo: copy.url).health.isOK)
-        final class Box: @unchecked Sendable { var total: Int64 = -1 }
-        let box = Box()
         t = Date()
-        let repaired = try Transfer.copyRepo(src, toHub: dstHub) { box.total = $0.total }
-        print("E2E repair: \(Date().timeIntervalSince(t))s, bytes copied \(box.total / 2)")
+        let report = try Transfer.backup(src, toHub: dstHub)
+        let repaired = report.repo
+        print("E2E repair: \(Date().timeIntervalSince(t))s (checks every blob on the drive), bytes copied \(report.bytesCopied)")
         XCTAssertEqual(repaired.health, .ok)
-        XCTAssertEqual(box.total, 0)
+        XCTAssertEqual(report.bytesCopied, 0, "every blob was already on the drive")
+        XCTAssertEqual(report.replacedBlobs, [])
 
         t = Date()
         let back = try Transfer.copyRepo(repaired.url, toHub: backHub)

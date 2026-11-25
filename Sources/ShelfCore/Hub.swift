@@ -189,7 +189,8 @@ public enum Prelinker {
     /// LFS files are named by SHA-256; small files by their git blob id, SHA-1 of "blob <size>\0" + bytes.
     static func hashMatches(_ url: URL, file: HubFile, cancel: CancelToken, reporter: Reporter) throws -> Bool {
         let fd = open(url.path, O_RDONLY)
-        guard fd >= 0 else { return false }
+        // Can't read it (permissions, a drive that just went away): that's an error, not damage.
+        guard fd >= 0 else { throw Transfer.posix("Couldn't open", url.path) }
         defer { close(fd) }
         _ = fcntl(fd, F_NOCACHE, 1)
         let size = Transfer.chunkSize

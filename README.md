@@ -24,10 +24,10 @@ can load the copy. Model Shelf finds copies damaged this way and repairs them.
   size, and whether each copy is healthy.
 - **Back up to library.** Copy a new download to the drive and verify it. The Mac copy stays.
 - **Copy to Mac.** Bring a model back to the cache to use it. The library copy stays.
-- **Remove from Mac.** Allowed only when the library copy is healthy and holds every blob and
-  snapshot file the Mac copy has.
-- **Repair or update the library** from a good Mac copy. Blobs already on the drive are cloned
-  instead of copied, so repairing a large model takes seconds.
+- **Remove from Mac.** Allowed only when the library copy is healthy, holds every revision, blob and
+  snapshot file the Mac copy has, and every one of those files on the drive passes its hash check.
+- **Repair or update the library** from a good Mac copy. Files already on the drive are checked
+  and kept, so only what's missing or damaged is copied.
 - **Redownload** a broken library copy that isn't on this Mac, through the
   [LocalLM SDK](https://github.com/ancientcomputing/locallm), at the exact revision you had.
 - **Drag and drop** models onto *Library* or *On this Mac* in the sidebar.
@@ -64,19 +64,27 @@ folder: it contains `models--org--name` folders, just like the cache. The cache 
 
 ## How it keeps your models safe
 
-- **Copies never delete.** Backing up and copying always leave the source in place. The only
-  action that deletes a model from this Mac is **Remove from Mac**, and only once the library holds
-  a healthy, complete copy.
-- **Verify before swapping in.** A copy is assembled in a hidden staging folder next to its
-  destination. Every copied blob is hashed (SHA-256) and compared with the source. Only then is the
-  copy swapped into place. If anything fails or you cancel, the staging folder is deleted and the
-  source is untouched.
+[docs/data-safety.md](docs/data-safety.md) lists every action and situation, what each can change,
+and the test that covers it.
+
+- **Only two actions delete.** **Remove from Mac** deletes this Mac's copy, and only after reading
+  the library's copy back and checking every file against its hash. **Delete from library** asks
+  first. Nothing else removes a model, a revision or a file.
+- **Backups add, they don't replace.** Backing up, updating, repairing and restoring merge into the
+  copy that's already there. A copy keeps every revision it had, even ones the other side doesn't
+  have, so two Macs can share one library drive. `refs/main` keeps pointing where it did unless
+  that revision is missing or broken. The one exception: a file that fails its hash check is
+  damaged, and is replaced with a verified copy.
+- **Verify before it lands.** Each new file is written to a hidden staging folder, hashed (SHA-256)
+  and compared with the source, then moved into place. Files already in the destination are
+  checked against their hash before they're kept. If anything fails or you cancel, the staging
+  folder is deleted and both copies keep everything they had.
 - **Symlinks stay symlinks.** Snapshot links are recreated exactly, so the copy works wherever it
   lands.
 - **No page-cache flooding.** Large files are copied with `F_NOCACHE`, so copying 40 GB doesn't
   push everything else out of memory.
 - **Downloads in progress are left alone.** A model with `.incomplete` files in `blobs/` can't be
-  copied.
+  copied, and nothing is copied into one.
 - **Health checks look at what loaders need.** A copy is healthy only when its snapshots contain
   real model files and every link resolves. Hidden marker files such as
   `.locallm-download-complete` don't count.
@@ -114,7 +122,7 @@ jq -r '[.date, .action, .repoID, .revision] | @tsv' ~/Library/Application\ Suppo
 ## Development
 
 ```
-Sources/ShelfCore       scanning, health checks, copy/verify/swap, pins, activity log (no SDK)
+Sources/ShelfCore       scanning, health checks, copy/verify/merge, pins, activity log (no SDK)
 Sources/ShelfDownload   redownloads through the LocalLM SDK
 Sources/ModelShelf      the SwiftUI app
 Tests/                  XCTest suites

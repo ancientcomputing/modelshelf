@@ -68,6 +68,8 @@ public enum ShelfError: LocalizedError, Equatable {
     case notEnoughSpace(needed: Int64, available: Int64)
     case verifyFailed(String)
     case libraryDoesNotCover(String)
+    case destinationBusy(String)
+    case sourceDamaged(String)
     case io(String)
     case hub(String)
     case cancelled
@@ -81,6 +83,8 @@ public enum ShelfError: LocalizedError, Equatable {
             return "Not enough space. It needs \(f.string(fromByteCount: n)) and only \(f.string(fromByteCount: a)) is free."
         case .verifyFailed(let r): return "Verification failed: \(r). Nothing was deleted."
         case .libraryDoesNotCover(let r): return "The library copy isn't complete (\(r)), so the Mac copy was kept."
+        case .destinationBusy(let r): return "Nothing was changed: \(r). Try again when it's finished."
+        case .sourceDamaged(let b): return "A file in the copy being copied from is damaged (\(b)…), so it wasn't copied over the other copy. Repair or redownload that copy first."
         case .io(let r): return r
         case .hub(let r): return r
         case .cancelled: return "Cancelled."
@@ -93,6 +97,25 @@ public enum Scanner {
     public static func scan(hub: URL) -> [RepoInfo] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: hub.path)) ?? []
         return names.filter(RepoName.isRepoDir).compactMap { try? inspect(repo: hub.appendingPathComponent($0)) }
+    }
+
+    /// True when `snapshots/<revision>` has content and every link in it resolves.
+    public static func revisionIsComplete(repo: URL, revision: String) -> Bool {
+        let fm = FileManager.default
+        let dir = repo.appendingPathComponent("snapshots/\(revision)")
+        guard let en = fm.enumerator(atPath: dir.path) else { return false }
+        var content = 0
+        while let rel = en.nextObject() as? String {
+            let path = dir.appendingPathComponent(rel).path
+            guard let type = (try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType else { continue }
+            if type == .typeSymbolicLink {
+                guard fm.fileExists(atPath: path) else { return false }
+                content += 1
+            } else if type == .typeRegular, !(rel as NSString).lastPathComponent.hasPrefix(".") {
+                content += 1
+            }
+        }
+        return content > 0
     }
 
     public static func inspect(repo: URL) throws -> RepoInfo {

@@ -257,8 +257,19 @@ struct Banners: View {
         let new = store.entries.filter { $0.status == .newOnMac }
         let repair = store.entries.filter { $0.status == .needsRepair || $0.status == .libraryOutdated }
         let lost = store.entries.filter { $0.status == .brokenLibraryOnly }
+        let lostModels = lost.filter(\.isModel)
 
         VStack(spacing: 8) {
+            if store.sameFolder {
+                Banner(icon: "exclamationmark.octagon", tint: .red, text: Store.sameFolderMessage,
+                       detail: store.libraryHub.path)
+            }
+            if !store.parkedCopies.isEmpty {
+                Banner(icon: "shippingbox", tint: .orange,
+                       text: "An older version of Model Shelf left \(store.parkedCopies.count) folder\(store.parkedCopies.count == 1 ? "" : "s") behind after an interrupted copy. \(store.parkedCopies.count == 1 ? "It" : "Each") may hold a model's only copy. Model Shelf won't delete \(store.parkedCopies.count == 1 ? "it" : "them"): check, then move or delete \(store.parkedCopies.count == 1 ? "it" : "them") in Finder.",
+                       detail: store.parkedCopies.map(\.path).joined(separator: ", "),
+                       action: ("Show in Finder", { NSWorkspace.shared.activateFileViewerSelecting(store.parkedCopies) }))
+            }
             if !store.libraryAvailable {
                 Banner(icon: "externaldrive.badge.xmark", tint: .orange,
                        text: "The library isn't available. Connect the drive, or choose another folder in Settings.",
@@ -278,7 +289,7 @@ struct Banners: View {
                 Banner(icon: "exclamationmark.triangle", tint: .red,
                        text: "\(lost.count) library cop\(lost.count == 1 ? "y is" : "ies are") broken and \(lost.count == 1 ? "isn't" : "aren't") on this Mac. Download \(lost.count == 1 ? "it" : "them") again to fix.",
                        detail: lost.map(\.repoID).joined(separator: ", "),
-                       action: store.libraryAvailable ? ("Redownload all", { store.pendingRedownload = lost.map(\.id) }) : nil)
+                       action: store.libraryAvailable && !lostModels.isEmpty ? ("Redownload all", { store.pendingRedownload = lostModels.map(\.id) }) : nil)
             }
         }
         .padding(.horizontal, 16)
@@ -371,7 +382,7 @@ struct ModelTable: View {
                 NSPasteboard.general.setString(e.repoID, forType: .string)
             }
         }
-        let redownloadable = items.filter { $0.status != .downloading && $0.status != .brokenLibraryOnly }
+        let redownloadable = items.filter { $0.isModel && $0.status != .downloading && $0.status != .brokenLibraryOnly }
         if !redownloadable.isEmpty {
             Button("Download again into library…") { store.pendingRedownload = redownloadable.map(\.id) }
         }
@@ -479,9 +490,8 @@ struct JobBar: View {
                     case .verifying where store.current?.kind == .redownload:
                         Text("Checking files already on the drive: \(p.done.bytes) of \(p.total.bytes)")
                     default:
-                        let half = p.total / 2
-                        let step = p.phase == .copying ? p.done : max(p.done - half, 0)
-                        Text("\(p.phase.rawValue) \(step.bytes) of \(half.bytes)")
+                        // Copies check what's already there, then copy and verify what's missing.
+                        Text("\(p.phase.rawValue)… \(Int(Double(p.done) / Double(p.total) * 100))%")
                     }
                     Spacer()
                     if store.bytesPerSecond > 0 { Text("\(Int64(store.bytesPerSecond).bytes)/s") }

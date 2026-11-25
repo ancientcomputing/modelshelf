@@ -55,5 +55,24 @@ final class SDKDownloadTests: XCTestCase {
         XCTAssertEqual(fixed.repo.health, RepoHealth.ok)
         let again = try Data(contentsOf: blobs.appendingPathComponent(weights))
         XCTAssertNotEqual(again, bytes, "corrupt blob was replaced")
+
+        // 4. Another Mac's revision on the drive, with main pointing at it, survives a redownload.
+        let other = "0123456789abcdef0123456789abcdef01234567"
+        let repo = first.repo.url
+        try Data("other mac".utf8).write(to: repo.appendingPathComponent("blobs/other-blob"))
+        try fm.createDirectory(at: repo.appendingPathComponent("snapshots/\(other)"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: repo.appendingPathComponent("snapshots/\(other)/extra.json").path,
+                                  withDestinationPath: "../../blobs/other-blob")
+        try fm.createDirectory(at: repo.appendingPathComponent("refs"), withIntermediateDirectories: true)
+        try other.write(to: repo.appendingPathComponent("refs/main"), atomically: true, encoding: .utf8)
+        try fm.removeItem(at: snap.appendingPathComponent("config.json")) // something to redownload
+        let kept = try await SDKDownloader.download(repoID: repoID, choice: choice, libraryHub: hub, cancel: CancelToken()) { _ in }
+        print("NET two-mac: kept \(kept.merge.keptRevisions) refs \(kept.merge.keptRefs)")
+        XCTAssertEqual(kept.repo.snapshots, [commit, other])
+        XCTAssertTrue(Scanner.revisionIsComplete(repo: repo, revision: other))
+        XCTAssertEqual(kept.repo.refs["main"], other)
+        XCTAssertTrue(Scanner.revisionIsComplete(repo: repo, revision: commit))
+        let names = try fm.contentsOfDirectory(atPath: hub.path)
+        XCTAssertFalse(names.contains { $0.hasPrefix(".modelshelf") }, "staging removed: \(names)")
     }
 }

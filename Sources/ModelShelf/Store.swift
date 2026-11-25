@@ -63,6 +63,8 @@ struct Entry: Identifiable, Hashable {
     var org: String { repoID.split(separator: "/").first.map(String.init) ?? "" }
     var name: String { repoID.split(separator: "/").dropFirst().joined(separator: "/") }
     var size: Int64 { local?.sizeBytes ?? library?.sizeBytes ?? 0 }
+    /// Models, not datasets or spaces: only models can be downloaded again.
+    var isModel: Bool { id.hasPrefix("models--") }
     var modified: Date { max(local?.modified ?? .distantPast, library?.modified ?? .distantPast) }
 
     var status: Status {
@@ -88,7 +90,7 @@ struct Entry: Identifiable, Hashable {
         case .synced: ("Remove from Mac", .removeFromMac)
         case .libraryOnly: ("Copy to Mac", .copyToMac)
         case .brokenLocal: library?.health.isOK == true ? ("Restore from library", .copyToMac) : nil
-        case .brokenLibraryOnly: ("Redownload", .redownload)
+        case .brokenLibraryOnly: isModel ? ("Redownload", .redownload) : nil
         case .downloading: nil
         }
     }
@@ -130,6 +132,11 @@ final class Store {
     var macSpace: Space?
     var librarySpace: Space?
     var isScanning = false
+    /// The cache and the library are the same folder: every job is blocked, since "deleting from
+    /// the library" or "removing from the Mac" would delete the only copy.
+    var sameFolder = false
+    /// `.modelshelf-old-*` folders left by versions up to 1.0.3; may hold a model's only copy.
+    var parkedCopies: [URL] = []
 
     var queue: [Job] = []
     var current: Job?
@@ -265,9 +272,13 @@ final class Store {
                 guard let f = Transfer.freeSpace(u), let t = Transfer.totalSpace(u) else { return nil }
                 return Space(free: f, total: t)
             }
+            let same = libOK && Store.sameItem(cache, library)
+            let parked = Transfer.parkedCopies(in: cache) + (libOK ? Transfer.parkedCopies(in: library) : [])
             return (Scanner.scan(hub: cache), libOK ? Scanner.scan(hub: library) : [], libOK,
-                    space(cache), libOK ? space(library) : nil, Demo.isActive ? [:] : PinFiles.load())
+                    space(cache), libOK ? space(library) : nil, Demo.isActive ? [:] : PinFiles.load(), same, parked)
         }.value
+        sameFolder = result.6
+        parkedCopies = result.7
         pins = result.5
 
         var byName: [String: Entry] = [:]
@@ -303,7 +314,20 @@ final class Store {
 
     func isBusy(_ id: String) -> Bool { current?.dirName == id || queue.contains { $0.dirName == id } }
 
+    static let sameFolderMessage = "The library and the Hugging Face cache are the same folder, so Model Shelf won't change anything. Choose a different library folder in Settings."
+
+    /// Whether two folders are the same one, however they're spelled (case, symlinks, firmlinks).
+    nonisolated static func sameItem(_ a: URL, _ b: URL) -> Bool {
+        let key = URLResourceKey.fileResourceIdentifierKey
+        guard let x = try? a.resourceValues(forKeys: [key]).fileResourceIdentifier,
+              let y = try? b.resourceValues(forKeys: [key]).fileResourceIdentifier else {
+            return a.resolvingSymlinksInPath().standardizedFileURL == b.resolvingSymlinksInPath().standardizedFileURL
+        }
+        return x.isEqual(y)
+    }
+
     func run(_ kind: JobKind, on ids: some Sequence<String>) {
+        guard !sameFolder else { lastError = Store.sameFolderMessage; return }
         // Every job reads or writes the library, so the drive must be there.
         guard libraryAvailable else {
             lastError = "Connect the library drive first. Looking for \(libraryHub.path)."
@@ -343,12 +367,13 @@ final class Store {
     }
 
     func redownload(_ ids: [String], useLatest: Bool) {
+        guard !sameFolder else { lastError = Store.sameFolderMessage; return }
         guard libraryAvailable else {
             lastError = "Connect the library drive first. Looking for \(libraryHub.path)."
             return
         }
         for id in ids where !isBusy(id) {
-            guard let e = entries.first(where: { $0.id == id }) else { continue }
+            guard let e = entries.first(where: { $0.id == id }), e.isModel else { continue }
             queue.append(Job(dirName: id, kind: .redownload, title: JobKind.redownload.title(e.repoID),
                              action: "Downloaded into library", repoID: e.repoID,
                              revision: useLatest ? .latest : revisionChoice(for: e)))
@@ -446,19 +471,16 @@ final class Store {
                                     report: @escaping @Sendable (TransferProgress) -> Void) async throws -> JobResult {
         let local = cache.appendingPathComponent(job.dirName)
         let lib = library.appendingPathComponent(job.dirName)
-        // Copies report copy + verify bytes, so half the total is what was copied.
-        final class Last: @unchecked Sendable { var total: Int64 = 0 }
-        let last = Last()
-        let tracked: @Sendable (TransferProgress) -> Void = { last.total = $0.total; report($0) }
-        func copied(_ r: RepoInfo) -> JobResult {
-            JobResult(bytes: last.total / 2, revision: r.currentRevision ?? r.snapshots.sorted().joined(separator: ", "))
-        }
         switch job.kind {
-        case .copyToLibrary: return copied(try Transfer.copyRepo(local, toHub: library, cancel: token, progress: tracked))
-        case .copyToMac: return copied(try Transfer.copyRepo(lib, toHub: cache, cancel: token, progress: tracked))
+        case .copyToLibrary:
+            return logged(try Transfer.backup(local, toHub: library, cancel: token, progress: report), destination: "the library")
+        case .copyToMac:
+            return logged(try Transfer.backup(lib, toHub: cache, cancel: token, progress: report), destination: "this Mac")
         case .removeFromMac:
-            try Transfer.removeIfCovered(local: local, library: lib)
-            return JobResult(bytes: job.size, detail: "freed on this Mac")
+            let differing = try Transfer.removeIfCovered(local: local, library: lib, cancel: token, progress: report)
+            let refs = differing.sorted { $0.key < $1.key }
+                .map { "; \($0.key) on this Mac was \($0.value.prefix(7)), it's still in the library" }.joined()
+            return JobResult(bytes: job.size, detail: "freed on this Mac\(refs)")
         case .deleteFromLibrary:
             try FileManager.default.removeItem(at: lib)
             return JobResult(bytes: job.size, detail: "freed on the library drive")
@@ -466,9 +488,36 @@ final class Store {
             let out = try await SDKDownloader.download(
                 repoID: job.repoID, choice: job.revision ?? .latest, libraryHub: library, cancel: token, progress: report)
             let reused = out.prelink.bytesReused > 0 ? ", reused \(out.prelink.linked) files (\(out.prelink.bytesReused.bytes)) already on the drive" : ""
+            let merged = logged(out.merge, destination: "the library").detail ?? ""
             return JobResult(bytes: out.bytesDownloaded, revision: out.commit,
-                             detail: "downloaded \(out.bytesDownloaded.bytes)\(reused)")
+                             detail: "downloaded \(out.bytesDownloaded.bytes)\(reused); \(merged)")
         }
+    }
+
+    /// The activity log entry for a backup or restore: the revisions it added, and what it left
+    /// in place or repaired in the destination.
+    nonisolated static func logged(_ r: CopyReport, destination: String) -> JobResult {
+        func short(_ revs: [String]) -> String { revs.map { String($0.prefix(7)) }.joined(separator: ", ") }
+        var parts: [String] = []
+        if !r.addedRevisions.isEmpty {
+            parts.append("added revision\(r.addedRevisions.count == 1 ? "" : "s") \(short(r.addedRevisions))")
+        }
+        if !r.keptRevisions.isEmpty {
+            parts.append("kept revision\(r.keptRevisions.count == 1 ? "" : "s") \(short(r.keptRevisions)) already on \(destination)")
+        }
+        for (name, value) in r.keptRefs.sorted(by: { $0.key < $1.key }) {
+            parts.append("left \(name) at \(value.prefix(7))")
+        }
+        for (name, old) in r.replacedRefs.sorted(by: { $0.key < $1.key }) {
+            parts.append("moved \(name) from \(old.prefix(7)), which wasn't complete there")
+        }
+        if !r.replacedBlobs.isEmpty {
+            parts.append("replaced \(r.replacedBlobs.count) damaged file\(r.replacedBlobs.count == 1 ? "" : "s")")
+        }
+        if r.fixedLinks > 0 { parts.append("fixed \(r.fixedLinks) link\(r.fixedLinks == 1 ? "" : "s")") }
+        if parts.isEmpty { parts.append("nothing was missing") }
+        let revision = r.addedRevisions.isEmpty ? r.repo.currentRevision : r.addedRevisions.joined(separator: ", ")
+        return JobResult(bytes: r.bytesCopied, revision: revision, detail: parts.joined(separator: "; "))
     }
 
     // MARK: Finder

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import LocalLMLabSDKCore
 import LocalLMLabSDKInference
@@ -8,15 +9,22 @@ public struct DownloadOutcome: Sendable {
     public let commit: String
     public let bytesDownloaded: Int64
     public let prelink: PrelinkResult
-    public let repo: RepoInfo
+    /// How the download was merged into the library copy.
+    public let merge: CopyReport
+    public var repo: RepoInfo { merge.repo }
 }
 
-/// Re-downloads a model straight into the library through the LocalLM SDK:
+/// Re-downloads a model into the library through the LocalLM SDK, without letting anything write
+/// into the library copy directly:
 /// 1. resolve the requested revision to a commit (so a moving `main` can't change mid-way);
-/// 2. re-link blobs already on the drive, after checking their hashes, so nothing is fetched twice;
-/// 3. `MLXModelProvider(cacheDirectory: library, pinnedRevisions: [repo: commit]).download(repo)`
-///    fetches and verifies whatever is still missing and writes the SDK's completion marker;
-/// 4. check the result is complete.
+/// 2. set up a private staging copy on the same drive, seeded with clones (or hard links) of the
+///    files the library copy already has, and re-link the ones whose hashes check out, so nothing is
+///    fetched twice. Files that fail the check are dropped from the staging copy only;
+/// 3. `MLXModelProvider(cacheDirectory: staging, pinnedRevisions: [repo: commit]).download(repo)`
+///    fetches and verifies whatever is still missing;
+/// 4. check the result is complete, then merge it into the library with `Transfer.backup`: it
+///    only adds, keeps the library's other revisions and refs, and replaces a library file only
+///    when that file fails its hash check.
 public enum SDKDownloader {
     public static func download(
         repoID: String,
@@ -25,37 +33,63 @@ public enum SDKDownloader {
         cancel: CancelToken,
         progress: @escaping @Sendable (TransferProgress) -> Void
     ) async throws -> DownloadOutcome {
+        let fm = FileManager.default
+        let dirName = RepoName.dirName(forModel: repoID)
+        let libRepo = libraryHub.appendingPathComponent(dirName)
+        let existing = fm.fileExists(atPath: libRepo.path) ? try Scanner.inspect(repo: libRepo) : nil
+        if existing?.health == .downloading {
+            throw ShelfError.destinationBusy("the library copy is still downloading")
+        }
+
         let meta = try await Hub.fetchRevision(repoID: repoID, revision: choice.revision)
         if choice.isPinned, meta.sha != choice.revision.lowercased() {
             throw ShelfError.hub("Hugging Face resolved \(choice.revision) to a different commit (\(meta.sha)).")
         }
-        let repoDir = libraryHub.appendingPathComponent(RepoName.dirName(forModel: repoID))
-        try FileManager.default.createDirectory(at: repoDir.appendingPathComponent("blobs"), withIntermediateDirectories: true)
+
+        try fm.createDirectory(at: libraryHub, withIntermediateDirectories: true)
+        let stagingHub = Transfer.newStaging(in: libraryHub)
+        try fm.createDirectory(at: stagingHub, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: stagingHub) } // only the staging copy: links and our own downloads
+        let repoDir = stagingHub.appendingPathComponent(dirName)
+        try fm.createDirectory(at: repoDir.appendingPathComponent("blobs"), withIntermediateDirectories: true)
+        // Seed with the library's files without copying them. A clone (APFS) is a separate file
+        // sharing the data, so nothing done to it reaches the library's file; elsewhere a hard
+        // link at least keeps deletes and renames here from touching it.
+        for name in existing?.blobs.keys.sorted() ?? [] {
+            let from = libRepo.appendingPathComponent("blobs/\(name)").path
+            let to = repoDir.appendingPathComponent("blobs/\(name)").path
+            if Darwin.clonefile(from, to, 0) != 0 { _ = Darwin.link(from, to) }
+        }
+        let marker = "snapshots/\(meta.sha)/.locallm-download-complete"
+        if fm.fileExists(atPath: libRepo.appendingPathComponent(marker).path) {
+            try fm.createDirectory(at: repoDir.appendingPathComponent("snapshots/\(meta.sha)"), withIntermediateDirectories: true)
+            try fm.copyItem(at: libRepo.appendingPathComponent(marker), to: repoDir.appendingPathComponent(marker))
+        }
 
         let prelink = try await Task.detached(priority: .userInitiated) {
             try Prelinker.prelink(meta, repo: repoDir, cancel: cancel, progress: progress)
         }.value
         if cancel.isCancelled { throw ShelfError.cancelled }
-        // A same-named blob that's present would be kept by the SDK's cache instead of the fresh copy.
+        // A same-named blob that's present would be kept by the SDK's cache instead of the fresh
+        // copy. Unlinking it here leaves the library's file as it is.
         for name in prelink.corrupt {
-            try FileManager.default.removeItem(at: repoDir.appendingPathComponent("blobs/\(name)"))
+            try fm.removeItem(at: repoDir.appendingPathComponent("blobs/\(name)"))
         }
 
         // Space for whatever the SDK still has to fetch.
         var seen = Set<String>()
         let remaining = meta.siblings.filter { f in
             let link = repoDir.appendingPathComponent("snapshots/\(meta.sha)/\(f.rfilename)")
-            return !FileManager.default.fileExists(atPath: link.path) && seen.insert(f.blobName).inserted
+            return !fm.fileExists(atPath: link.path) && seen.insert(f.blobName).inserted
         }.reduce(Int64(0)) { $0 + $1.byteSize }
         if let free = Transfer.freeSpace(libraryHub), free < remaining + (512 << 20) {
             throw ShelfError.notEnoughSpace(needed: remaining, available: free)
         }
 
         var commit = meta.sha
-        if remaining > 0 || !FileManager.default.fileExists(
-            atPath: repoDir.appendingPathComponent("snapshots/\(meta.sha)/.locallm-download-complete").path) {
+        if remaining > 0 || !fm.fileExists(atPath: repoDir.appendingPathComponent(marker).path) {
             let provider = MLXModelProvider(
-                cacheDirectory: libraryHub, pinnedRevisions: [repoID: meta.sha], promptCache: .off)
+                cacheDirectory: stagingHub, pinnedRevisions: [repoID: meta.sha], promptCache: .off)
             let throttle = Throttle()
             let stream = provider.download(repoID)
             let watcher = Task.detached {
@@ -97,7 +131,10 @@ public enum SDKDownloader {
         guard repo.health.isOK, expected.isSubset(of: repo.snapshotFiles) else {
             throw ShelfError.verifyFailed("some files of \(meta.sha) are still missing after the download")
         }
-        return DownloadOutcome(commit: commit, bytesDownloaded: remaining, prelink: prelink, repo: repo)
+
+        // Merge the verified download into the library copy.
+        let merge = try Transfer.backup(repoDir, toHub: libraryHub, cancel: cancel, progress: progress)
+        return DownloadOutcome(commit: commit, bytesDownloaded: remaining, prelink: prelink, merge: merge)
     }
 }
 
